@@ -2,52 +2,71 @@ import tkinter as tk
 from PIL import Image, ImageTk
 import bcrypt
 import mysql.connector
-from tkinter import ttk
-from tkinter import messagebox
+from tkinter import ttk, messagebox
 import requests
 import json
-import subprocess  # Add this import for calling external scripts
+import subprocess
 
 # MySQL Database Functions
-def create_connection():
-    connection = mysql.connector.connect(
-        host='localhost',
-        database='login',
-        user='root',
-        password='root'
-    )
+def create_database_connection():
+    try:
+        connection = mysql.connector.connect(
+            host='localhost',
+            database='login',
+            user='root',
+            password='root'
+        )
 
-    if connection.is_connected():
-        print('Connected to MySQL database')
-    return connection
+        if connection.is_connected():
+            print('Connected to MySQL database')
+        return connection
+    except mysql.connector.Error as err:
+        print(f"Error: {err}")
+        messagebox.showerror("Error", f"Failed to connect to the database: {err}")
+        return None
 
 def register_user(connection, username, password):
-    cursor = connection.cursor()
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-    cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (username, hashed_password))
-    connection.commit()
-    print('User registered successfully')
+    try:
+        cursor = connection.cursor()
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        cursor.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (username, hashed_password))
+        connection.commit()
+        messagebox.showinfo("Registration Successful", "User registered successfully")
+    except mysql.connector.Error as err:
+        print(f"Error: {err}")
+        messagebox.showerror("Error", "Failed to register user. Please try again.")
 
 def authenticate_user(connection, username, password, status_label):
-    cursor = connection.cursor()
-    cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
-    user = cursor.fetchone()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        user = cursor.fetchone()
 
-    if user and bcrypt.checkpw(password.encode('utf-8'), user[2].encode('utf-8')):
-        status_label.config(text='Login successful')
-        show_main_window()  # Call the function to display the main window after a successful login
-    else:
-        status_label.config(text='Invalid username or password')
+        if user and bcrypt.checkpw(password.encode('utf-8'), user[2].encode('utf-8')):
+            status_label.config(text='Login successful', fg='green')
+            show_main_window()
+        else:
+            status_label.config(text='Invalid username or password', fg='red')
+    except mysql.connector.Error as err:
+        print(f"Error: {err}")
 
 def on_register_click(entry_username, entry_password, connection):
     username = entry_username.get()
     password = entry_password.get()
-    register_user(connection, username, password)
+
+    if not username or not password:
+        messagebox.showwarning("Input Error", "Please enter both username and password.")
+    else:
+        register_user(connection, username, password)
 
 def on_login_click(entry_username, entry_password, connection, status_label):
     username = entry_username.get()
     password = entry_password.get()
-    authenticate_user(connection, username, password, status_label)
+
+    if not username or not password:
+        messagebox.showwarning("Input Error", "Please enter both username and password.")
+    else:
+        authenticate_user(connection, username, password, status_label)
 
 def fetch_news():
     url = "https://api.polygon.io/v2/reference/news?limit=10&order=descending&sort=published_utc&apiKey=EJH9GbtEAmDVeT9p9mCNhBVV0lm0G2K2"
@@ -81,15 +100,15 @@ def show_news():
 
     if news_data:
         for news in news_data['results']:
+            title = news.get('title', 'No title available')
             description = news.get('description', 'No description available')
+            publisher = news['publisher']['name']
+            published_utc = news['published_utc']
 
-            # Extract ratings from news data
             formatted_ratings = ""
-
             if 'ratings' in news:
                 ratings = news['ratings']
                 try:
-                    # Assume ratings data is in a string format
                     lines = ratings.split('\n')
                     for line in lines:
                         formatted_ratings += f"{line.strip()}\n"
@@ -98,10 +117,10 @@ def show_news():
             else:
                 formatted_ratings = "Ratings information not available."
 
-            news_text = f"Title: {news['title']}\n\nPublisher: {news['publisher']['name']}\n\nPublished at: {news['published_utc']}\n\nDescription: {description}\n\nRatings:\n{formatted_ratings}\n\nURL: {news['article_url']}\n\n----\n"
-            text = tk.Text(scrollable_frame, wrap='word')  # Use Text widget here
+            news_text = f"Title: {title}\n\nPublisher: {publisher}\n\nPublished at: {published_utc}\n\nDescription: {description}\n\nRatings:\n{formatted_ratings}\n\nURL: {news['article_url']}\n\n----\n"
+            text = tk.Text(scrollable_frame, wrap='word', height=8, width=80)
             text.insert(tk.END, news_text)
-            text.configure(state='disabled')  # Disable editing
+            text.configure(state='disabled')
             text.pack()
 
     canvas.pack(side="left", fill="both", expand=True)
@@ -109,10 +128,8 @@ def show_news():
 
 def call_trade():
     try:
-        # Execute the trade.py script
         result = subprocess.run(['python', 'trade.py'], capture_output=True, text=True, check=True)
-        
-        # Display the result in a new window
+
         trade_result_window = tk.Toplevel(root)
         trade_result_window.title("Trade Result")
         trade_result_window.geometry("400x200")
@@ -142,7 +159,7 @@ root.title("User Authentication")
 root.geometry("400x300")
 
 # Background Image
-background_image = Image.open("rocket.png")  # Add the path to your PNG image
+background_image = Image.open("rocket.png")
 background_image = background_image.resize((400, 300), Image.LANCZOS)
 background_photo = ImageTk.PhotoImage(background_image)
 
@@ -172,7 +189,7 @@ status_label = tk.Label(root, text='', font=label_font, fg='red')
 status_label.place(relx=0.5, rely=0.7, anchor=tk.CENTER)
 
 # MySQL Database Connection
-db_connection = create_connection()
+db_connection = create_database_connection()
 
 # Register Button
 register_button = tk.Button(root, text="Register", command=lambda: on_register_click(entry_username, entry_password, db_connection), font=label_font)
@@ -183,5 +200,3 @@ login_button = tk.Button(root, text="Login", command=lambda: on_login_click(entr
 login_button.place(relx=0.5, rely=0.6, anchor=tk.CENTER)
 
 root.mainloop()
-
-
